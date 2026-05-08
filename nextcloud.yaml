@@ -1,0 +1,430 @@
+services:
+  nextcloud-aio-apache:
+    image: ghcr.io/nextcloud-releases/aio-apache:<IMAGE VERSION>
+    user: "33"
+    init: true
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        window: 120s
+      placement:
+        constraints:
+          - node.labels.type == worker
+        max_replicas_per_node: 1
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: stop-first
+    depends_on:
+      - nextcloud-aio-nextcloud
+    environment:
+      - NC_DOMAIN=<NEXTCLOUD DOMAIN>
+      - NEXTCLOUD_HOST=nextcloud-aio-nextcloud
+      - APACHE_HOST=nextcloud-aio-apache
+      - TALK_HOST=nextcloud-aio-talk
+      - APACHE_PORT=80
+      - TZ=Europe/Moscow
+      - APACHE_MAX_SIZE=17179869184
+      - APACHE_MAX_TIME=7200
+      - NOTIFY_PUSH_HOST=nextcloud-aio-notify-push
+    volumes:
+      - nextcloud_aio_nextcloud:/var/www/html:ro
+      - nextcloud_aio_apache:/mnt/data:rw
+    tmpfs:
+      - /var/log/supervisord
+      - /var/run/supervisord
+      - /usr/local/apache2/logs
+      - /tmp
+      - /home/www-data
+    ports:
+      - published: 335
+        target: 80
+        protocol: tcp
+        mode: host
+      - published: 335
+        target: 80
+        protocol: udp
+        mode: host
+    cap_drop:
+      - NET_RAW
+    healthcheck:
+      test: /healthcheck.sh
+      start_period: 120s
+      interval: 30s
+      timeout: 30s
+      start_interval: 5s
+      retries: 3
+
+  nextcloud-aio-nextcloud:
+    image: ghcr.io/nextcloud-releases/aio-nextcloud:<IMAGE VERSION>
+    init: true
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        window: 120s
+      placement:
+        constraints:
+          - node.labels.type == worker
+        max_replicas_per_node: 1
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: stop-first
+    depends_on:
+      - nextcloud-aio-database
+      - nextcloud-aio-redis
+      - nextcloud-aio-imaginary
+      - nextcloud-aio-onlyoffice
+      - nextcloud-aio-talk
+      - nextcloud-aio-notify-push
+    environment:
+      - NEXTCLOUD_HOST=nextcloud-aio-nextcloud
+      - POSTGRES_HOST=nextcloud-aio-database
+      - POSTGRES_PORT=5432
+      - POSTGRES_PASSWORD=<POSTGRES SECRET>
+      - POSTGRES_DB=nextcloud_database
+      - POSTGRES_USER=nextcloud
+      - REDIS_HOST=nextcloud-aio-redis
+      - REDIS_PORT=6379
+      - REDIS_HOST_PASSWORD=<REDIS SECRET>
+      - APACHE_HOST=nextcloud-aio-apache
+      - APACHE_PORT=80
+      - NC_DOMAIN=<NEXTCLOUD DOMAIN>
+      - ADMIN_USER=<ADMIN USERNAME>
+      - ADMIN_PASSWORD=<ADMIN PASSWORD>
+      - NEXTCLOUD_DATA_DIR=/mnt/ncdata
+      - OVERWRITEHOST=<NEXTCLOUD DOMAIN>
+      - OVERWRITEPROTOCOL=https
+      - TURN_SECRET=<TURN SECRET>
+      - SIGNALING_SECRET=<SIGNALING SECRET>
+      - NEXTCLOUD_MOUNT=/mnt/
+      - TALK_ENABLED=yes
+      - TALK_PORT=3478
+      - IMAGINARY_ENABLED=yes
+      - IMAGINARY_HOST=nextcloud-aio-imaginary
+      - ONLYOFFICE_ENABLED=yes
+      - ONLYOFFICE_SECRET=<ONLYOFFICE SECRET>
+      - ONLYOFFICE_HOST=<ONLYOFFICE DOMAIN>
+      - PHP_UPLOAD_LIMIT=16G
+      - PHP_MEMORY_LIMIT=1024M
+      - TZ=Europe/Moscow
+      - PHP_MAX_TIME=7200
+      - FPM_MAX_CHILDREN=50
+      - FPM_START_SERVERS=18
+      - FPM_MIN_SPARE_SERVERS=12
+      - FPM_MAX_SPARE_SERVERS=30
+      - FPM_MAX_REQUESTS=1000
+      - OPCACHE_MEMORY_CONSUMPTION=512
+      - OPCACHE_INTERNED_STRINGS_BUFFER=64
+      - OPCACHE_MAX_ACCELERATED_FILES=100000
+      - OPCACHE_REVALIDATE_FREQ=60
+      - STARTUP_APPS=""
+      - ADDITIONAL_APKS=imagemagick
+      - ADDITIONAL_PHP_EXTENSIONS=imagick
+      - INSTALL_LATEST_MAJOR=yes
+      - REMOVE_DISABLED_APPS=yes
+      - IMAGINARY_SECRET=<IMAGINARY SECRET>
+      - DISABLE_BRUTEFORCE_PROTECTION=yes
+    volumes:
+      - nextcloud_aio_nextcloud:/var/www/html:rw
+      - nextcloud_aio_nextcloud_data:/mnt/ncdata:rw
+      - nextcloud_aio_nextcloud_tmp:/tmp:rw
+      - /mnt/:/mnt/:rw
+    cap_drop:
+      - NET_RAW
+    stop_grace_period: 600s
+    healthcheck:
+      test: /healthcheck.sh
+      start_period: 120s
+      interval: 30s
+      timeout: 30s
+      start_interval: 5s
+      retries: 3
+
+  nextcloud-aio-database:
+    image: ghcr.io/nextcloud-releases/aio-postgresql:<IMAGE VERSION>
+    user: "999"
+    init: true
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+        window: 120s
+      placement:
+        constraints:
+          - node.labels.type == storage
+    environment:
+      - POSTGRES_PASSWORD=<POSTGRES SECRET>
+      - POSTGRES_DB=nextcloud_database
+      - POSTGRES_USER=nextcloud
+      - TZ=Europe/Moscow
+      - PGTZ=Europe/Moscow
+      - POSTGRES_INITDB_ARGS=--data-checksums --encoding=UTF8 --locale=C
+    volumes:
+      - nextcloud_aio_database:/var/lib/postgresql/data:rw
+      - nextcloud_aio_database_dump:/mnt/data:rw
+    tmpfs:
+      - /var/run/postgresql
+    cap_drop:
+      - NET_RAW
+    command: >
+      postgres
+      -c shared_buffers=2GB
+      -c effective_cache_size=6GB
+      -c maintenance_work_mem=512MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=8MB
+      -c min_wal_size=1GB
+      -c max_wal_size=4GB
+      -c max_connections=200
+    stop_grace_period: 1800s
+    healthcheck:
+      test: /healthcheck.sh
+      start_period: 120s
+      interval: 30s
+      timeout: 30s
+      start_interval: 5s
+      retries: 3
+
+  nextcloud-aio-redis:
+    image: ghcr.io/nextcloud-releases/aio-redis:<IMAGE VERSION>
+    user: "999"
+    init: true
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+        window: 120s
+      placement:
+        constraints:
+          - node.labels.type == storage
+    environment:
+      - REDIS_HOST_PASSWORD=<REDIS SECRET>
+      - TZ=Europe/Moscow
+    volumes:
+      - nextcloud_aio_redis:/data:rw
+    cap_drop:
+      - NET_RAW
+    command: >
+      redis-server
+      --tcp-backlog 511
+      --timeout 0
+      --tcp-keepalive 300
+      --maxclients 10000
+    healthcheck:
+      test: /healthcheck.sh
+      start_period: 120s
+      interval: 30s
+      timeout: 30s
+      start_interval: 5s
+      retries: 3
+
+  nextcloud-aio-talk:
+    image: ghcr.io/nextcloud-releases/aio-talk:<IMAGE VERSION>
+    user: "1000"
+    init: true
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        window: 120s
+      placement:
+        constraints:
+          - node.labels.type == storage
+    environment:
+      - NC_DOMAIN=<NEXTCLOUD DOMAIN>
+      - TALK_HOST=nextcloud-aio-talk
+      - TURN_SECRET=<TURN SECRET>
+      - SIGNALING_SECRET=<SIGNALING SECRET>
+      - TZ=Europe/Moscow
+      - TALK_PORT=3478
+      - INTERNAL_SECRET=<INTERNAL TALK SECRET>
+    tmpfs:
+      - /var/log/supervisord
+      - /var/run/supervisord
+      - /opt/eturnal/run
+      - /conf
+      - /tmp
+    ports:
+      - published: 3478
+        target: 3478
+        protocol: tcp
+        mode: host
+      - published: 3478
+        target: 3478
+        protocol: udp
+        mode: host
+    cap_drop:
+      - NET_RAW
+    healthcheck:
+      test: /healthcheck.sh
+      start_period: 120s
+      interval: 30s
+      timeout: 30s
+      start_interval: 5s
+      retries: 3
+
+  nextcloud-aio-notify-push:
+    image: ghcr.io/nextcloud-releases/aio-notify-push:<IMAGE VERSION>
+    user: "33"
+    init: true
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        window: 120s
+      placement:
+        constraints:
+          - node.labels.type == worker
+        max_replicas_per_node: 1
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: stop-first
+    environment:
+      - NEXTCLOUD_HOST=nextcloud-aio-nextcloud
+      - TZ=Europe/Moscow
+    volumes:
+      - nextcloud_aio_nextcloud:/var/www/html:ro
+    cap_drop:
+      - NET_RAW
+    healthcheck:
+      test: /healthcheck.sh
+      start_period: 120s
+      interval: 30s
+      timeout: 30s
+      start_interval: 5s
+      retries: 3
+
+  nextcloud-aio-imaginary:
+    image: ghcr.io/nextcloud-releases/aio-imaginary:<IMAGE VERSION>
+    user: "65534"
+    init: true
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        window: 120s
+      placement:
+        constraints:
+          - node.labels.type == worker
+        max_replicas_per_node: 1
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: stop-first
+    environment:
+      - TZ=Europe/Moscow
+      - IMAGINARY_SECRET=<IMAGINARY SECRET>
+    tmpfs:
+      - /tmp
+    cap_add:
+      - SYS_NICE
+    cap_drop:
+      - NET_RAW
+    healthcheck:
+      test: /healthcheck.sh
+      start_period: 120s
+      interval: 30s
+      timeout: 30s
+      start_interval: 5s
+      retries: 3
+
+  nextcloud-aio-onlyoffice:
+    image: ghcr.io/thomisus/onlyoffice-documentserver-unlimited:latest
+    init: true
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        window: 120s
+      placement:
+        constraints:
+          - node.labels.type == storage
+    environment:
+      - JWT_ENABLED=true
+      - JWT_SECRET=<ONLYOFFICE SECRET>
+      - JWT_HEADER=AuthorizationJwt
+    volumes:
+      - nextcloud_aio_onlyoffice:/var/lib/onlyoffice:rw
+    ports:
+      - published: 336
+        target: 80
+        protocol: tcp
+        mode: host
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/healthcheck"]
+      start_period: 120s
+      interval: 30s
+      timeout: 30s
+      start_interval: 5s
+      retries: 3
+
+volumes:
+  nextcloud_aio_apache:
+    driver: local
+  nextcloud_aio_nextcloud:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: addr=<NFS IP>,rw,nfsvers=4.2,timeo=600,retrans=3
+      device: :/<PATH TO NFS>/nextcloud_aio_nextcloud
+  nextcloud_aio_nextcloud_data:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: addr=<NFS IP>,rw,nfsvers=4.2,timeo=600,retrans=3,noac
+      device: :/<PATH TO NFS>/nextcloud_aio_nextcloud_data
+  nextcloud_aio_nextcloud_tmp:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: addr=<NFS IP>,rw,nfsvers=4.2,timeo=600,retrans=3,noac
+      device: :/<PATH TO NFS>/nextcloud_aio_nextcloud_tmp
+  nextcloud_aio_database:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /<PATH TO NFS>/nextcloud_aio_database
+  nextcloud_aio_database_dump:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /<PATH TO NFS>/nextcloud_aio_database_dump
+  nextcloud_aio_redis:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /<PATH TO NFS>/nextcloud_aio_redis
+  nextcloud_aio_onlyoffice:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /<PATH TO NFS>/nextcloud_aio_onlyoffice
+
+networks:
+  default:
+    driver: overlay
+    attachable: true
