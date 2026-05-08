@@ -80,7 +80,7 @@ chown -R 33:33 /mnt/nextcloud_aio_nextcloud_tmp
 - Настроить папку `/mnt` как NFS, с параметрами `rw,async,no_subtree_check,no_root_squash,crossmnt`
 
 ### WS
-- Установить Docker, и NFS-Client
+- Установить Docker и NFS-Client
 - Подключить сервера к Docker Swarm кластеру (`docker swarm join --token <TOKEN> 192.168.0.1:2377`)
 - Установить label `worker` в Docker Swarm для данных серверов (**выполняется с CS**: `docker node update --label-add type=worker WS-1`, `docker node update --label-add type=worker WS-2`, `docker node update --label-add type=worker WS-3` и так далее..)
 
