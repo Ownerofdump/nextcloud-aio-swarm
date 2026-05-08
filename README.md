@@ -1,5 +1,4 @@
-
-# <span style="color: #4CAF50;">Nextcloud AIO Swarm</span>
+# Nextcloud AIO Swarm
 
 Данный репозиторий позволит развернуть вам Nextcloud AIO в Docker Swarm для повышения отказоустойчивости за счет выноса stateless-сервисов в горизонтальное масштабирование, а также для контроля обновлений в production-средах.
 
